@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AeroTwin Mission Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0a0e1a;
+            --panel-bg: #111827;
+            --border: #1e293b;
+            --text-primary: #e2e8f0;
+            --text-secondary: #94a3b8;
+            --accent-blue: #3b82f6;
+            --accent-green: #10b981;
+            --accent-yellow: #f59e0b;
+            --accent-orange: #f97316;
+            --accent-red: #ef4444;
+            --accent-purple: #8b5cf6;
+            
+            --rec-continue: #065f46;
+            --rec-monitor: #78350f;
+            --rec-divert: #9a3412;
+            --rec-abort: #991b1b;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-primary);
+            line-height: 1.5;
+            overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* Typography */
+        h1, h2, h3, h4 { font-weight: 600; margin-bottom: 0.5rem; }
+        .text-sm { font-size: 0.875rem; color: var(--text-secondary); }
+        .text-xs { font-size: 0.75rem; color: var(--text-secondary); }
+        .text-lg { font-size: 1.125rem; }
+        .text-xl { font-size: 1.25rem; font-weight: 700; }
+        .text-2xl { font-size: 1.5rem; font-weight: 700; }
+        
+        /* Layout */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 1rem 2rem;
+            background-color: var(--panel-bg);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .header-left { display: flex; align-items: center; gap: 0.5rem; }
+        .header-center { text-align: center; }
+        .header-right { display: flex; align-items: center; gap: 0.5rem; }
+        
+        .status-dot {
+            width: 12px; height: 12px; border-radius: 50%;
+            background-color: var(--accent-red);
+            box-shadow: 0 0 8px var(--accent-red);
+            transition: background-color 0.3s, box-shadow 0.3s;
+        }
+        .status-dot.connected {
+            background-color: var(--accent-green);
+            box-shadow: 0 0 8px var(--accent-green);
+        }
+
+        .recommendation-banner {
+            width: 100%; padding: 0.75rem; text-align: center;
+            background-color: var(--rec-continue);
+            font-weight: 700; font-size: 1.25rem; text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: background-color 0.5s;
+        }
+        @keyframes pulse-bg {
+            0% { opacity: 1; }
+            50% { opacity: 0.8; }
+            100% { opacity: 1; }
+        }
+        .pulse { animation: pulse-bg 1.5s infinite; }
+
+        .main-container {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            padding: 1rem;
+            gap: 1rem;
+            overflow-y: auto;
+        }
+
+        .grid-layout {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 1rem;
+        }
+        @media (min-width: 1024px) {
+            .grid-layout { grid-template-columns: 1fr 1fr; }
+        }
+
+        .panel {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            padding: 1rem;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        
+        .panel-title {
+            font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em;
+            color: var(--text-secondary); margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border); padding-bottom: 0.5rem;
+        }
+
+        /* Gauges */
+        .gauges-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem;
+        }
+        @media (min-width: 1024px) {
+            .gauges-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+        .gauge-card {
+            background: linear-gradient(145deg, #162032, #0f1523);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem; padding: 1rem; text-align: center;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);
+            transition: all 0.3s ease;
+        }
+        .gauge-value { font-size: 2rem; font-weight: 700; margin: 0.5rem 0; font-family: monospace; transition: color 0.3s; }
+        .gauge-bar-container { width: 100%; height: 6px; background-color: var(--border); border-radius: 3px; overflow: hidden; margin-top: 0.5rem; }
+        .gauge-bar { height: 100%; width: 0%; background-color: var(--accent-blue); transition: width 0.3s, background-color 0.3s; }
+        .gauge-residual { margin-top: 0.5rem; font-size: 0.75rem; font-family: monospace; }
+        
+        /* Charts */
+        .chart-container { height: 180px; width: 100%; margin-bottom: 1rem; position: relative; }
+        
+        /* Bottom Section Grid */
+        .bottom-grid {
+            display: grid; grid-template-columns: 1fr; gap: 1rem;
+        }
+        @media (min-width: 1024px) {
+            .bottom-grid { grid-template-columns: 1fr 1fr 1fr; }
+        }
+
+        /* Specific Bottom Panels */
+        .rul-display { text-align: center; }
+        .rul-value { font-size: 3rem; font-weight: 700; font-family: monospace; margin: 1rem 0; color: var(--accent-green); transition: color 0.5s; }
+        .progress-bar-container { width: 100%; height: 10px; background-color: var(--border); border-radius: 5px; overflow: hidden; }
+        .progress-bar { height: 100%; width: 100%; background-color: var(--accent-green); transition: width 1s, background-color 0.5s; }
+        
+        .anomaly-score { display: flex; align-items: center; justify-content: space-between; font-size: 1.5rem; margin-top: 1rem; }
+        .anomaly-bar-container { flex: 1; height: 10px; background-color: var(--border); border-radius: 5px; margin: 0 1rem; overflow: hidden; }
+        .anomaly-bar { height: 100%; width: 0%; background-color: var(--accent-green); transition: width 0.3s, background-color 0.3s; }
+        
+        /* Alerts */
+        .alerts-panel { height: 300px; display: flex; flex-direction: column; }
+        .alerts-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem; padding-right: 0.5rem; }
+        .alerts-list::-webkit-scrollbar { width: 6px; }
+        .alerts-list::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+        .alerts-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+        .alert-item { 
+            padding: 0.75rem; border-radius: 0.25rem; background-color: rgba(30,41,59,0.5); 
+            border-left: 4px solid var(--accent-blue); font-size: 0.875rem; 
+        }
+        .alert-item.advisory { border-left-color: var(--accent-blue); background-color: rgba(59, 130, 246, 0.1); }
+        .alert-item.warning { border-left-color: var(--accent-yellow); background-color: rgba(245, 158, 11, 0.1); }
+        .alert-item.critical { border-left-color: var(--accent-red); background-color: rgba(239, 68, 68, 0.1); }
+        
+        .badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 700; text-transform: uppercase; margin-right: 0.5rem; margin-bottom: 0.5rem; }
+        .badge-blue { background-color: rgba(59, 130, 246, 0.2); color: #93c5fd; }
+        .badge-yellow { background-color: rgba(245, 158, 11, 0.2); color: #fcd34d; }
+        .badge-red { background-color: rgba(239, 68, 68, 0.2); color: #fca5a5; }
+        .badge-green { background-color: rgba(16, 185, 129, 0.2); color: #6ee7b7; }
+
+        /* Controls */
+        .controls-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin-bottom: 1rem; }
+        .btn {
+            padding: 0.5rem 1rem; border: none; border-radius: 0.25rem; font-weight: 600; cursor: pointer;
+            transition: opacity 0.2s, transform 0.1s; text-align: center; color: white;
+        }
+        .btn:active { transform: scale(0.98); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-blue { background-color: var(--accent-blue); }
+        .btn-orange { background-color: var(--accent-orange); }
+        .btn-red { background-color: var(--accent-red); }
+        .btn-purple { background-color: var(--accent-purple); }
+        .btn-green { background-color: var(--accent-green); }
+        .btn-outline-green { background-color: transparent; border: 1px solid var(--accent-green); color: var(--accent-green); }
+        .btn-outline-green:hover { background-color: rgba(16, 185, 129, 0.1); }
+        .btn-gray { background-color: var(--border); }
+        
+        .control-group { margin-bottom: 1rem; }
+        .control-group label { display: block; margin-bottom: 0.5rem; font-size: 0.875rem; }
+        input[type=range] { width: 100%; margin-bottom: 0.5rem; }
+        select { width: 100%; padding: 0.5rem; background-color: #1e293b; color: white; border: 1px solid #334155; border-radius: 0.25rem; margin-bottom: 0.5rem; }
+        
+        .replay-badge {
+            position: absolute; top: 10px; right: 20px;
+            background-color: var(--accent-orange); color: white; font-weight: bold;
+            padding: 0.25rem 0.5rem; border-radius: 0.25rem; display: none; z-index: 100;
+        }
+
+        .flex-row { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; }
+        .flex-1 { flex: 1; }
+    </style>
+</head>
+<body>
+    <div id="replayBadge" class="replay-badge">REPLAY MODE</div>
+    
+    <!-- Top Bar -->
+    <header class="header">
+        <div class="header-left">
+            <span class="text-2xl">✈ AeroTwin</span>
+            <span class="text-sm">Command Center</span>
+        </div>
+        <div class="header-center">
+            <div>Mission: <span id="missionIdVal" class="text-xl">--</span> | Phase: <span id="missionPhaseVal" class="text-xl" style="text-transform: capitalize;">--</span></div>
+            <div class="text-sm">Elapsed Time: <span id="missionTimeVal">00:00:00</span></div>
+        </div>
+        <div class="header-right">
+            <span id="connStatusText" class="text-sm">Connecting...</span>
+            <div id="connStatusDot" class="status-dot"></div>
+        </div>
+    </header>
+
+    <!-- Recommendation Banner -->
+    <div id="recBanner" class="recommendation-banner">
+        RECOMMENDATION: <span id="recText">AWAITING DATA</span>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-container">
+        
+        <!-- Top Grid: Gauges & Charts -->
+        <div class="grid-layout">
+            
+            <!-- Left: Gauges -->
+            <div class="panel">
+                <div class="panel-title">Live Telemetry</div>
+                <div class="gauges-grid">
+                    <!-- RPM -->
+                    <div class="gauge-card">
+                        <div class="text-sm">RPM</div>
+                        <div id="gaugeRpmVal" class="gauge-value">----</div>
+                        <div class="gauge-bar-container"><div id="gaugeRpmBar" class="gauge-bar"></div></div>
+                        <div id="gaugeRpmRes" class="gauge-residual">res: 0.00</div>
+                    </div>
+                    <!-- CHT -->
+                    <div class="gauge-card">
+                        <div class="text-sm">CHT (°C)</div>
+                        <div id="gaugeChtVal" class="gauge-value">----</div>
+                        <div class="gauge-bar-container"><div id="gaugeChtBar" class="gauge-bar"></div></div>
+                        <div id="gaugeChtRes" class="gauge-residual">res: 0.00</div>
+                    </div>
+                    <!-- EGT -->
+                    <div class="gauge-card">
+                        <div class="text-sm">EGT (°C)</div>
+                        <div id="gaugeEgtVal" class="gauge-value">----</div>
+                        <div class="gauge-bar-container"><div id="gaugeEgtBar" class="gauge-bar"></div></div>
+                        <div id="gaugeEgtRes" class="gauge-residual">res: 0.00</div>
+                    </div>
+                    <!-- Oil Pressure -->
+                    <div class="gauge-card">
+                        <div class="text-sm">Oil Press (bar)</div>
+                        <div id="gaugeOilPVal" class="gauge-value">----</div>
+                        <div class="gauge-bar-container"><div id="gaugeOilPBar" class="gauge-bar"></div></div>
+                        <div id="gaugeOilPRes" class="gauge-residual">res: 0.00</div>
+                    </div>
+                    <!-- Oil Temp -->
+                    <div class="gauge-card">
+                        <div class="text-sm">Oil Temp (°C)</div>
+                        <div id="gaugeOilTVal" class="gauge-value">----</div>
+                        <div class="gauge-bar-container"><div id="gaugeOilTBar" class="gauge-bar"></div></div>
+                        <div id="gaugeOilTRes" class="gauge-residual">res: 0.00</div>
+                    </div>
+                    <!-- Fuel Flow -->
+                    <div class="gauge-card">
+                        <div class="text-sm">Fuel Flow (L/hr)</div>
+                        <div id="gaugeFuelVal" class="gauge-value">----</div>
+                        <div class="gauge-bar-container"><div id="gaugeFuelBar" class="gauge-bar"></div></div>
+                        <div id="gaugeFuelRes" class="gauge-residual">res: 0.00</div>
+                    </div>
+                    <!-- Vibration -->
+                    <div class="gauge-card">
+                        <div class="text-sm">Vibration (g)</div>
+                        <div id="gaugeVibVal" class="gauge-value">----</div>
+                        <div class="gauge-bar-container"><div id="gaugeVibBar" class="gauge-bar"></div></div>
+                        <div id="gaugeVibRes" class="gauge-residual">res: 0.00</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Trend Charts -->
+            <div class="panel">
+                <div class="panel-title">Trend Analysis (5 Min Window)</div>
+                <div class="chart-container"><canvas id="chartCht"></canvas></div>
+                <div class="chart-container"><canvas id="chartOilP"></canvas></div>
+                <div class="chart-container"><canvas id="chartVib"></canvas></div>
+            </div>
+
+        </div>
+
+        <!-- Bottom Grid -->
+        <div class="bottom-grid">
+            
+            <!-- Health Status -->
+            <div class="panel">
+                <div class="panel-title">System Health</div>
+                
+                <div class="rul-display">
+                    <div class="text-sm">Estimated Remaining Useful Life (RUL)</div>
+                    <div id="rulVal" class="rul-value">---.- hrs</div>
+                    <div class="progress-bar-container"><div id="rulBar" class="progress-bar"></div></div>
+                </div>
+                
+                <div style="margin-top: 1.5rem;">
+                    <div class="text-sm">Anomaly Score</div>
+                    <div class="anomaly-score">
+                        <span style="font-size: 1rem;">0.0</span>
+                        <div class="anomaly-bar-container"><div id="anomalyBar" class="anomaly-bar"></div></div>
+                        <span id="anomalyScoreVal" style="font-size: 1.25rem;">0.00</span>
+                    </div>
+                </div>
+
+                <div style="margin-top: 1.5rem; background: rgba(0,0,0,0.2); padding: 1rem; border-radius: 0.5rem;">
+                    <div class="text-sm" style="margin-bottom: 0.5rem;">Fault Classification</div>
+                    <div>Predicted: <span id="faultPredVal" class="text-lg" style="text-transform: capitalize; font-weight: bold;">None</span></div>
+                    <div class="text-sm">Confidence: <span id="faultConfVal">--</span>%</div>
+                </div>
+            </div>
+
+            <!-- Alerts & Explanations -->
+            <div class="panel alerts-panel">
+                <div class="panel-title">Diagnostics & Alerts</div>
+                
+                <div id="diagnosticText" style="margin-bottom: 1rem; font-style: italic; font-size: 0.9rem; color: var(--text-secondary);">
+                    Waiting for diagnostic data...
+                </div>
+                
+                <div class="alerts-list" id="alertsList">
+                    <!-- Alerts go here -->
+                </div>
+            </div>
+
+            <!-- Controls & Replay -->
+            <div class="panel">
+                <div class="panel-title">Controls & Replay</div>
+                
+                <div class="control-group">
+                    <label>Mission Controls</label>
+                    <div class="controls-grid">
+                        <button class="btn btn-green" onclick="apiCall('/api/mission/start', 'POST')">Start Mission</button>
+                        <button class="btn btn-red" onclick="apiCall('/api/mission/stop', 'POST')">Stop Mission</button>
+                    </div>
+                </div>
+
+                <div class="control-group" style="border-top: 1px solid var(--border); padding-top: 1rem;">
+                    <label>Fault Injection (Live only)</label>
+                    <div class="flex-row">
+                        <span class="text-xs">Severity:</span>
+                        <input type="range" id="severitySlider" min="0.1" max="1.0" step="0.1" value="0.7">
+                        <span id="severityVal" class="text-xs" style="width: 30px;">0.7</span>
+                    </div>
+                    <div class="controls-grid">
+                        <button class="btn btn-blue"   onclick="injectFault('sensor_drift')">Sensor Drift</button>
+                        <button class="btn btn-orange"  onclick="injectFault('overheating_trend')">Overheating</button>
+                        <button class="btn btn-red"     onclick="injectFault('oil_pressure_loss')">Oil Press Loss</button>
+                        <button class="btn btn-purple"  onclick="injectFault('misfire_condition')">Misfire</button>
+                        <button class="btn" style="background:#0891b2;color:#fff;" onclick="injectFault('injector_abnormality')">Injector Fault</button>
+                        <button class="btn" style="background:#d97706;color:#fff;" onclick="injectFault('combustion_instability')">Combustion Instab.</button>
+                        <button class="btn" style="background:#059669;color:#fff;" onclick="injectFault('cooling_degradation')">Cooling Degrad.</button>
+                        <button class="btn" style="background:#7c3aed;color:#fff;" onclick="injectFault('lubrication_degradation')">Lubrication Degrad.</button>
+                    </div>
+                    <button class="btn btn-outline-green" style="width: 100%; margin-top: 0.5rem;" onclick="apiCall('/api/fault/clear', 'POST')">Clear Fault</button>
+                </div>
+                
+                <div class="control-group" style="border-top: 1px solid var(--border); padding-top: 1rem;">
+                    <label>Mission Replay</label>
+                    <div class="flex-row">
+                        <select id="missionSelect" class="flex-1"><option value="">Select a mission...</option></select>
+                        <button class="btn btn-blue" onclick="loadReplay()">Load</button>
+                    </div>
+                    <div class="flex-row" style="margin-top:0.5rem; gap:0.5rem;">
+                        <a id="btnDownloadPdf" class="btn btn-gray flex-1" style="text-align:center;text-decoration:none;opacity:0.4;pointer-events:none;" href="#" target="_blank">⬇ PDF Report</a>
+                        <a id="btnDownloadCsv" class="btn btn-gray flex-1" style="text-align:center;text-decoration:none;opacity:0.4;pointer-events:none;" href="#" target="_blank">⬇ CSV Export</a>
+                    </div>
+                    <div class="flex-row" style="margin-top: 0.5rem;">
+                        <button id="btnPlayPause" class="btn btn-gray flex-1" onclick="toggleReplay()" disabled>Play</button>
+                        <select id="replaySpeed" style="width: 80px; margin-bottom: 0;">
+                            <option value="1">1x</option>
+                            <option value="2">2x</option>
+                            <option value="5">5x</option>
+                            <option value="10">10x</option>
+                        </select>
+                        <button class="btn btn-gray flex-1" onclick="returnToLive()">Live</button>
+                    </div>
+                    <input type="range" id="replayScrubber" min="0" max="100" value="0" disabled style="margin-top: 0.5rem;">
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Health Indices Panel (full-width) -->
+        <div class="panel" id="healthPanel">
+            <div class="panel-title">⚙ System Health Indices</div>
+            <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap:1rem; margin-bottom:1rem;">
+                <!-- Overall -->
+                <div style="text-align:center; grid-column: 1/-1; padding:0.5rem; background:rgba(0,0,0,0.2); border-radius:0.5rem;">
+                    <div class="text-sm" style="margin-bottom:0.25rem;">Overall Engine Health</div>
+                    <div id="hiOverallScore" style="font-size:2.5rem; font-weight:700; font-family:monospace; color:var(--accent-green); transition:color 0.5s;">--</div>
+                    <div id="hiOverallStatus" style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.1em; color:var(--text-secondary);">--</div>
+                </div>
+                <!-- Subsystems -->
+                <div class="gauge-card" id="hiThermal_card">
+                    <div class="text-xs">🌡 Thermal</div>
+                    <div id="hiThermalScore" class="gauge-value" style="font-size:1.5rem;">--</div>
+                    <div class="gauge-bar-container"><div id="hiThermalBar" class="gauge-bar"></div></div>
+                    <div id="hiThermalStatus" class="text-xs" style="margin-top:0.25rem;">--</div>
+                </div>
+                <div class="gauge-card" id="hiLubrication_card">
+                    <div class="text-xs">🛢 Lubrication</div>
+                    <div id="hiLubricationScore" class="gauge-value" style="font-size:1.5rem;">--</div>
+                    <div class="gauge-bar-container"><div id="hiLubricationBar" class="gauge-bar"></div></div>
+                    <div id="hiLubricationStatus" class="text-xs" style="margin-top:0.25rem;">--</div>
+                </div>
+                <div class="gauge-card" id="hiCombustion_card">
+                    <div class="text-xs">🔥 Combustion</div>
+                    <div id="hiCombustionScore" class="gauge-value" style="font-size:1.5rem;">--</div>
+                    <div class="gauge-bar-container"><div id="hiCombustionBar" class="gauge-bar"></div></div>
+                    <div id="hiCombustionStatus" class="text-xs" style="margin-top:0.25rem;">--</div>
+                </div>
+                <div class="gauge-card" id="hiVibration_card">
+                    <div class="text-xs">📳 Mechanical/Vibration</div>
+                    <div id="hiVibrationScore" class="gauge-value" style="font-size:1.5rem;">--</div>
+                    <div class="gauge-bar-container"><div id="hiVibrationBar" class="gauge-bar"></div></div>
+                    <div id="hiVibrationStatus" class="text-xs" style="margin-top:0.25rem;">--</div>
+                </div>
+                <div class="gauge-card" id="hiElectrical_card">
+                    <div class="text-xs">⚡ Electrical</div>
+                    <div id="hiElectricalScore" class="gauge-value" style="font-size:1.5rem;">--</div>
+                    <div class="gauge-bar-container"><div id="hiElectricalBar" class="gauge-bar"></div></div>
+                    <div id="hiElectricalStatus" class="text-xs" style="margin-top:0.25rem;">--</div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- Constants & Config ---
+        const MAX_DATA_POINTS = 300; // 5 mins at 1Hz
+        const WS_URL = 'ws://localhost:8000/ws/telemetry';
+        const API_BASE = 'http://localhost:8000';
+        
+        // --- State ---
+        let ws = null;
+        let isReplayMode = false;
+        let replayData = [];
+        let replayIndex = 0;
+        let replayTimer = null;
+        let isPlaying = false;
+        
+        let chartDataCht = { time: [], vals: [] };
+        let chartDataOilP = { time: [], vals: [] };
+        let chartDataVib = { time: [], vals: [] };
+
+        // --- Chart.js Setup ---
+        Chart.defaults.color = '#94a3b8';
+        Chart.defaults.font.family = 'sans-serif';
+        
+        const commonOptions = {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: { enabled: false }
+            },
+            scales: {
+                x: { display: true, grid: { color: '#1e293b' }, ticks: { maxTicksLimit: 6 } },
+                y: { display: true, grid: { color: '#1e293b' } }
+            },
+            elements: {
+                point: { radius: 0 },
+                line: { borderWidth: 2, tension: 0.2 }
+            }
+        };
+
+        const ctxCht = document.getElementById('chartCht').getContext('2d');
+        const chartCht = new Chart(ctxCht, {
+            type: 'line',
+            data: { labels: [], datasets: [
+                { label: 'CHT', data: [], borderColor: '#f59e0b', backgroundColor: 'transparent' },
+                { label: 'Limit', data: [], borderColor: '#ef4444', borderDash: [5, 5], borderWidth: 1 }
+            ]},
+            options: { ...commonOptions, plugins: { title: { display: true, text: 'CHT (°C) Trend', color: '#e2e8f0', font: {size: 14} } } }
+        });
+
+        const ctxOilP = document.getElementById('chartOilP').getContext('2d');
+        const chartOilP = new Chart(ctxOilP, {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'Oil Press', data: [], borderColor: '#3b82f6', backgroundColor: 'transparent' }] },
+            options: { ...commonOptions, plugins: { title: { display: true, text: 'Oil Pressure (bar) Trend', color: '#e2e8f0', font: {size: 14} } } }
+        });
+
+        const ctxVib = document.getElementById('chartVib').getContext('2d');
+        const chartVib = new Chart(ctxVib, {
+            type: 'line',
+            data: { labels: [], datasets: [{ label: 'Vibration', data: [], borderColor: '#10b981', backgroundColor: 'transparent' }] },
+            options: { ...commonOptions, plugins: { title: { display: true, text: 'Vibration (g) Trend', color: '#e2e8f0', font: {size: 14} } } }
+        });
+
+        // --- UI Updaters ---
+        function formatTime(secs) {
+            const h = Math.floor(secs / 3600);
+            const m = Math.floor((secs % 3600) / 60);
+            const s = Math.floor(secs % 60);
+            return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        }
+
+        // Health index status -> color
+        function hiColor(status) {
+            if (!status) return 'var(--accent-blue)';
+            const s = status.toLowerCase();
+            if (s === 'excellent') return 'var(--accent-green)';
+            if (s === 'good')      return '#22c55e';
+            if (s === 'degraded')  return 'var(--accent-yellow)';
+            if (s === 'poor')      return 'var(--accent-orange)';
+            return 'var(--accent-red)';
+        }
+
+        function updateSubsystem(name, id, score, status) {
+            const scoreEl  = document.getElementById(`hi${id}Score`);
+            const barEl    = document.getElementById(`hi${id}Bar`);
+            const statusEl = document.getElementById(`hi${id}Status`);
+            if (!scoreEl) return;
+            const color = hiColor(status);
+            scoreEl.textContent     = score.toFixed(0);
+            scoreEl.style.color     = color;
+            barEl.style.width       = `${score}%`;
+            barEl.style.backgroundColor = color;
+            statusEl.textContent    = status ? status.toUpperCase() : '--';
+            statusEl.style.color    = color;
+        }
+
+        function updateHealthIndices(hi) {
+            if (!hi) return;
+            const overallEl  = document.getElementById('hiOverallScore');
+            const statusEl   = document.getElementById('hiOverallStatus');
+            if (overallEl) {
+                overallEl.textContent   = hi.overall_score != null ? hi.overall_score.toFixed(0) : '--';
+                overallEl.style.color   = hiColor(hi.overall_status);
+            }
+            if (statusEl) statusEl.textContent = hi.overall_status ? hi.overall_status.toUpperCase() : '--';
+            updateSubsystem('Thermal',     'Thermal',     (hi.thermal             || {score:0}).score, (hi.thermal             || {}).status);
+            updateSubsystem('Lubrication', 'Lubrication', (hi.lubrication         || {score:0}).score, (hi.lubrication         || {}).status);
+            updateSubsystem('Combustion',  'Combustion',  (hi.combustion          || {score:0}).score, (hi.combustion          || {}).status);
+            updateSubsystem('Vibration',   'Vibration',   (hi.mechanical_vibration|| {score:0}).score, (hi.mechanical_vibration|| {}).status);
+            updateSubsystem('Electrical',  'Electrical',  (hi.electrical          || {score:0}).score, (hi.electrical          || {}).status);
+        }
+
+        function updateGauge(idPrefix, val, min, max, warnHigh, errHigh, warnLow = -1, errLow = -1, res = 0, isInt = false) {
+            const valEl = document.getElementById(`gauge${idPrefix}Val`);
+            const barEl = document.getElementById(`gauge${idPrefix}Bar`);
+            const resEl = document.getElementById(`gauge${idPrefix}Res`);
+            
+            const displayVal = isInt ? Math.round(val) : val.toFixed(1);
+            valEl.textContent = displayVal;
+            
+            // Color logic
+            let color = 'var(--accent-blue)';
+            if ((errHigh !== -1 && val >= errHigh) || (errLow !== -1 && val <= errLow)) {
+                color = 'var(--accent-red)';
+            } else if ((warnHigh !== -1 && val >= warnHigh) || (warnLow !== -1 && val <= warnLow)) {
+                color = 'var(--accent-yellow)';
+            }
+            
+            valEl.style.color = color;
+            barEl.style.backgroundColor = color;
+            
+            let pct = ((val - min) / (max - min)) * 100;
+            pct = Math.max(0, Math.min(100, pct));
+            barEl.style.width = `${pct}%`;
+            
+            resEl.textContent = `res: ${res >= 0 ? '+' : ''}${res.toFixed(2)}`;
+            if (Math.abs(res) > 2.0) resEl.style.color = 'var(--accent-red)';
+            else if (Math.abs(res) > 1.0) resEl.style.color = 'var(--accent-yellow)';
+            else resEl.style.color = 'var(--accent-green)';
+        }
+
+        let alertHistoryCount = 0;
+        let lastFaultPredicted = 'none';
+        function addAlert(fault, corr, timeStr) {
+            const list = document.getElementById('alertsList');
+            const div = document.createElement('div');
+            
+            let sevClass = 'advisory';
+            let sevBadge = 'badge-blue';
+            if (corr.severity_level === 'warning') { sevClass = 'warning'; sevBadge = 'badge-yellow'; }
+            if (corr.severity_level === 'critical') { sevClass = 'critical'; sevBadge = 'badge-red'; }
+            
+            div.className = `alert-item ${sevClass}`;
+            div.innerHTML = `
+                <div style="margin-bottom: 0.25rem;">
+                    <span class="badge badge-red">${fault.predicted_fault || fault.predicted}</span>
+                    <span class="badge ${sevBadge}">${corr.severity_level}</span>
+                    <span style="float: right; font-size: 0.7rem; color: var(--text-secondary);">${timeStr}</span>
+                </div>
+                <div style="margin-bottom: 0.25rem;">${fault.explanation_text || ''}</div>
+                ${corr.flagged_sensors && corr.flagged_sensors.length > 0 ? `<div class="text-xs">Flagged: ${corr.flagged_sensors.join(', ')}</div>` : ''}
+            `;
+            
+            list.prepend(div);
+            alertHistoryCount++;
+            while (list.children.length > 20) {
+                list.removeChild(list.lastChild);
+            }
+        }
+
+        function updateDashboard(data) {
+            // Header
+            document.getElementById('missionIdVal').textContent = data.mission_id || '--';
+            document.getElementById('missionPhaseVal').textContent = data.telemetry.phase || '--';
+            document.getElementById('missionTimeVal').textContent = formatTime(data.telemetry.t_s);
+
+            // Banner
+            const rec = (data.recommendation || 'continue').toLowerCase();
+            const banner = document.getElementById('recBanner');
+            const recText = document.getElementById('recText');
+            recText.textContent = `${(data.recommendation || 'CONTINUE').toUpperCase()} — ${(data.corroboration.severity_level || 'none').toUpperCase()}`;
+            
+            banner.classList.remove('pulse');
+            if (rec === 'continue') { banner.style.backgroundColor = 'var(--rec-continue)'; }
+            else if (rec === 'monitor') { banner.style.backgroundColor = 'var(--rec-monitor)'; }
+            else if (rec === 'divert') { banner.style.backgroundColor = 'var(--rec-divert)'; banner.classList.add('pulse'); }
+            else if (rec === 'abort') { banner.style.backgroundColor = 'var(--rec-abort)'; banner.classList.add('pulse'); }
+
+            // Gauges (val, min, max, warnHi, errHi, warnLo, errLo)
+            const tel = data.telemetry;
+            const res = data.residuals;
+            updateGauge('Rpm', tel.rpm, 0, 6000, 5500, 5800, 1000, 500, 0, true);
+            updateGauge('Cht', tel.cht_c, 0, 250, 180, 220, -1, -1, res.cht_c || 0);
+            updateGauge('Egt', tel.egt_c, 0, 900, 700, 800, -1, -1, res.egt_c || 0);
+            updateGauge('OilP', tel.oil_press_bar, 0, 6, -1, -1, 2.5, 1.5, res.oil_press_bar || 0);
+            updateGauge('OilT', tel.oil_temp_c, 0, 150, 100, 120, -1, -1, res.oil_temp_c || 0);
+            updateGauge('Fuel', tel.fuel_flow_lph, 0, 35, 25, 30, -1, -1, res.fuel_flow_lph || 0);
+            updateGauge('Vib', tel.vibration_g, 0, 5, 2.5, 3.5, -1, -1, res.vibration_g || 0);
+
+            // Charts
+            const tStr = formatTime(tel.t_s);
+            
+            chartDataCht.time.push(tStr);
+            chartDataCht.vals.push(tel.cht_c);
+            if(chartDataCht.time.length > MAX_DATA_POINTS) { chartDataCht.time.shift(); chartDataCht.vals.shift(); }
+            chartCht.data.labels = chartDataCht.time;
+            chartCht.data.datasets[0].data = chartDataCht.vals;
+            chartCht.data.datasets[1].data = Array(chartDataCht.vals.length).fill(220);
+            chartCht.update();
+
+            chartDataOilP.time.push(tStr);
+            chartDataOilP.vals.push(tel.oil_press_bar);
+            if(chartDataOilP.time.length > MAX_DATA_POINTS) { chartDataOilP.time.shift(); chartDataOilP.vals.shift(); }
+            chartOilP.data.labels = chartDataOilP.time;
+            chartOilP.data.datasets[0].data = chartDataOilP.vals;
+            chartOilP.update();
+
+            chartDataVib.time.push(tStr);
+            chartDataVib.vals.push(tel.vibration_g);
+            if(chartDataVib.time.length > MAX_DATA_POINTS) { chartDataVib.time.shift(); chartDataVib.vals.shift(); }
+            chartVib.data.labels = chartDataVib.time;
+            chartVib.data.datasets[0].data = chartDataVib.vals;
+            chartVib.update();
+
+            // RUL
+            const rulEl = document.getElementById('rulVal');
+            const rulBar = document.getElementById('rulBar');
+            rulEl.textContent = `${data.rul_hours.toFixed(1)} hrs`;
+            
+            let rulPct = (data.rul_hours / 300) * 100;
+            rulPct = Math.max(0, Math.min(100, rulPct));
+            rulBar.style.width = `${rulPct}%`;
+            
+            let rulColor = 'var(--accent-green)';
+            if (data.rul_hours < 10) rulColor = 'var(--accent-red)';
+            else if (data.rul_hours < 50) rulColor = 'var(--accent-yellow)';
+            rulEl.style.color = rulColor;
+            rulBar.style.backgroundColor = rulColor;
+
+            // Anomaly Score
+            const asVal = data.anomaly_score;
+            document.getElementById('anomalyScoreVal').textContent = asVal.toFixed(2);
+            const asBar = document.getElementById('anomalyBar');
+            asBar.style.width = `${Math.min(100, asVal * 100)}%`;
+            let asColor = 'var(--accent-green)';
+            if (asVal > 0.8) asColor = 'var(--accent-red)';
+            else if (asVal > 0.5) asColor = 'var(--accent-yellow)';
+            asBar.style.backgroundColor = asColor;
+            document.getElementById('anomalyScoreVal').style.color = asColor;
+
+            // Fault Classification
+            const fault = data.fault || {};
+            const faultPred = fault.predicted_fault || fault.predicted || 'none';
+            const faultConf = fault.confidence || 0;
+            document.getElementById('faultPredVal').textContent = faultPred.replace(/_/g, ' ');
+            document.getElementById('faultConfVal').textContent = (faultConf * 100).toFixed(0);
+            
+            let predColor = 'var(--accent-green)';
+            if (faultPred !== 'none') predColor = 'var(--accent-red)';
+            document.getElementById('faultPredVal').style.color = predColor;
+
+            document.getElementById('diagnosticText').textContent = fault.explanation_text || 'System nominal.';
+
+            // Alerts — only add when fault state CHANGES (avoid per-tick spam)
+            if (faultPred !== lastFaultPredicted) {
+                lastFaultPredicted = faultPred;
+                if (faultPred !== 'none' || data.corroboration.severity_level !== 'none') {
+                    addAlert(fault, data.corroboration, (data.timestamp || '').split('T')[1] || '');
+                }
+            }
+
+            // Health Indices panel
+            updateHealthIndices(data.health_indices);
+        }
+
+        function clearCharts() {
+            chartDataCht = { time: [], vals: [] };
+            chartDataOilP = { time: [], vals: [] };
+            chartDataVib = { time: [], vals: [] };
+            chartCht.data.labels = []; chartCht.data.datasets.forEach(d => d.data = []); chartCht.update();
+            chartOilP.data.labels = []; chartOilP.data.datasets.forEach(d => d.data = []); chartOilP.update();
+            chartVib.data.labels = []; chartVib.data.datasets.forEach(d => d.data = []); chartVib.update();
+        }
+
+        // --- WebSocket Logic ---
+        function connectWS() {
+            if (isReplayMode) return;
+            
+            document.getElementById('connStatusText').textContent = 'Connecting...';
+            document.getElementById('connStatusDot').classList.remove('connected');
+            
+            ws = new WebSocket(WS_URL);
+            
+            ws.onopen = () => {
+                if (isReplayMode) { ws.close(); return; }
+                document.getElementById('connStatusText').textContent = 'Connected (Live)';
+                document.getElementById('connStatusDot').classList.add('connected');
+            };
+            
+            ws.onmessage = (event) => {
+                if (isReplayMode) return;
+                try {
+                    const data = JSON.parse(event.data);
+                    updateDashboard(data);
+                } catch (e) { console.error("Error parsing WS data", e); }
+            };
+            
+            ws.onclose = () => {
+                if (!isReplayMode) {
+                    document.getElementById('connStatusText').textContent = 'Disconnected';
+                    document.getElementById('connStatusDot').classList.remove('connected');
+                    setTimeout(connectWS, 3000);
+                }
+            };
+            
+            ws.onerror = (err) => {
+                console.error('WebSocket Error', err);
+                ws.close();
+            };
+        }
+
+        // --- API & Control Logic ---
+        async function apiCall(endpoint, method, body = null) {
+            try {
+                const opts = { method: method, headers: {} };
+                if (body) {
+                    opts.headers['Content-Type'] = 'application/json';
+                    opts.body = JSON.stringify(body);
+                }
+                const res = await fetch(API_BASE + endpoint, opts);
+                return await res.json();
+            } catch (e) {
+                console.error("API Call Error:", e);
+                return null;
+            }
+        }
+
+        document.getElementById('severitySlider').addEventListener('input', (e) => {
+            document.getElementById('severityVal').textContent = parseFloat(e.target.value).toFixed(1);
+        });
+
+        function injectFault(type) {
+            const sev = parseFloat(document.getElementById('severitySlider').value);
+            apiCall('/api/fault/inject', 'POST', { fault_type: type, severity: sev });
+        }
+
+        // --- Replay Logic ---
+        async function fetchMissions() {
+            const missions = await apiCall('/api/missions', 'GET');
+            if (missions && Array.isArray(missions)) {
+                const select = document.getElementById('missionSelect');
+                select.innerHTML = '<option value="">Select a mission...</option>';
+                missions.forEach(m => {
+                    const opt = document.createElement('option');
+                    opt.value = m.id;
+                    const ts = m.start_time ? m.start_time.split('T')[0] : '';
+                    opt.textContent = `${m.id} (${ts}, ${m.total_ticks || 0} ticks, ${m.status})`;
+                    select.appendChild(opt);
+                });
+            }
+        }
+
+        async function loadReplay() {
+            const mid = document.getElementById('missionSelect').value;
+            if (!mid) return;
+            
+            const resp = await apiCall(`/api/missions/${mid}`, 'GET');
+            // API returns {mission: {...}, telemetry: [...]}
+            if (!resp || !resp.telemetry || !Array.isArray(resp.telemetry)) {
+                alert("Failed to load replay data or no ticks stored.");
+                return;
+            }
+            
+            replayData = resp.telemetry;
+            isReplayMode = true;
+            if (ws) ws.close();
+
+            // Activate download links
+            const pdfBtn = document.getElementById('btnDownloadPdf');
+            const csvBtn = document.getElementById('btnDownloadCsv');
+            pdfBtn.href = `${API_BASE}/api/missions/${mid}/report.pdf`;
+            csvBtn.href = `${API_BASE}/api/missions/${mid}/report.csv`;
+            pdfBtn.style.opacity = '1'; pdfBtn.style.pointerEvents = 'auto';
+            csvBtn.style.opacity = '1'; csvBtn.style.pointerEvents = 'auto';
+
+            document.getElementById('replayBadge').style.display = 'block';
+            document.getElementById('connStatusText').textContent = 'Replay Mode';
+            document.getElementById('connStatusDot').classList.remove('connected');
+
+            
+            clearCharts();
+            lastFaultPredicted = 'none';
+            replayIndex = 0;
+            
+            const scrubber = document.getElementById('replayScrubber');
+            scrubber.disabled = false;
+            scrubber.max = replayData.length - 1;
+            scrubber.value = 0;
+            
+            const btn = document.getElementById('btnPlayPause');
+            btn.disabled = false;
+            btn.textContent = 'Play';
+            isPlaying = false;
+            if(replayTimer) clearInterval(replayTimer);
+            
+            if (replayData.length > 0) updateDashboard(replayData[0]);
+        }
+
+        function toggleReplay() {
+            if (!isReplayMode || replayData.length === 0) return;
+            const btn = document.getElementById('btnPlayPause');
+            
+            if (isPlaying) {
+                isPlaying = false;
+                btn.textContent = 'Play';
+                clearInterval(replayTimer);
+            } else {
+                isPlaying = true;
+                btn.textContent = 'Pause';
+                if (replayIndex >= replayData.length - 1) replayIndex = 0;
+                
+                const step = () => {
+                    if (replayIndex < replayData.length) {
+                        updateDashboard(replayData[replayIndex]);
+                        document.getElementById('replayScrubber').value = replayIndex;
+                        replayIndex++;
+                    } else {
+                        toggleReplay(); // Pause at end
+                    }
+                };
+                
+                const speed = parseInt(document.getElementById('replaySpeed').value) || 1;
+                const interval = 1000 / speed;
+                replayTimer = setInterval(step, interval);
+            }
+        }
+
+        document.getElementById('replaySpeed').addEventListener('change', () => {
+            if (isPlaying) {
+                toggleReplay(); // pause
+                toggleReplay(); // play with new speed
+            }
+        });
+
+        document.getElementById('replayScrubber').addEventListener('input', (e) => {
+            if (!isReplayMode || replayData.length === 0) return;
+            const wasPlaying = isPlaying;
+            if (isPlaying) toggleReplay(); // pause while scrubbing
+            
+            replayIndex = parseInt(e.target.value);
+            if (replayIndex < replayData.length) {
+                updateDashboard(replayData[replayIndex]);
+            }
+        });
+
+        function returnToLive() {
+            isReplayMode = false;
+            if (replayTimer) clearInterval(replayTimer);
+            document.getElementById('replayBadge').style.display = 'none';
+            document.getElementById('btnPlayPause').disabled = true;
+            document.getElementById('replayScrubber').disabled = true;
+            clearCharts();
+            connectWS();
+        }
+
+        // --- Init ---
+        window.addEventListener('DOMContentLoaded', () => {
+            connectWS();
+            // Fetch missions for replay dropdown (dummy or real)
+            fetchMissions();
+        });
+
+    </script>
+</body>
+</html>
