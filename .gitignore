@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+__MACOSX/
+*.zip
+*.db
+.env
+venv/
+.venv/
+aerotwin_ml/data/aerotwin_dataset.csv

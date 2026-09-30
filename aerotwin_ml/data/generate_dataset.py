@@ -1,9 +1,14 @@
 """
-AeroTwin - Dataset Generator
-==============================
+AeroTwin - Dataset Generator (v2)
+==================================
 Runs many simulated missions (healthy + fault-injected) through the
 simulator + digital twin, computes residuals, and saves a labeled
 dataset for training the anomaly detector, fault classifier, and RUL model.
+
+v2 changes
+----------
+- Instantiates a fresh DigitalTwin per mission and calls twin.step(sample, 1.0)
+  instead of the deprecated compute_residuals() wrapper.
 """
 
 import sys, os
@@ -12,7 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
 import pandas as pd
 from simulator.engine_simulator import EngineSimulator, FlightPhase, FAULT_TYPES
-from models.digital_twin import compute_residuals, RESIDUAL_FIELDS
+from models.digital_twin import DigitalTwin, RESIDUAL_FIELDS
 
 MISSION_PHASE_SEQUENCE = [
     (FlightPhase.GROUND, 60), (FlightPhase.TAKEOFF, 30), (FlightPhase.CLIMB, 300),
@@ -25,6 +30,9 @@ def run_mission(mission_id: int, inject_fault: bool, rng: np.random.Generator) -
     altitude = rng.uniform(5000, 20000)
     sim = EngineSimulator(ambient_temp_c=ambient, altitude_ft=altitude, dt_s=1.0,
                            seed=int(rng.integers(0, 1_000_000)))
+
+    # Fresh DigitalTwin per mission (Problem 2)
+    twin = DigitalTwin()
 
     fault_type = None
     fault_start_frac = rng.uniform(0.4, 0.8)
@@ -40,7 +48,9 @@ def run_mission(mission_id: int, inject_fault: bool, rng: np.random.Generator) -
             if inject_fault and sim.fault.fault_type is None and sim.state.elapsed_s >= fault_start_t:
                 sim.inject_fault(fault_type, severity=rng.uniform(0.5, 1.0))
             sample = sim.step(phase, throttle_override=phase and PHASE_JITTER(phase, rng))
-            residuals = compute_residuals(sample)
+            # Use DigitalTwin.step (dt=1.0) — fresh twin per mission (Problem 2)
+            twin_result = twin.step(sample, 1.0)
+            residuals = twin_result["residuals"]
             row = {**sample, **{f"resid_{k}": v for k, v in residuals.items()}}
             row["mission_id"] = mission_id
             rows.append(row)
@@ -63,7 +73,7 @@ def generate(n_healthy=25, n_faulty=25, seed=7, out_path="data/aerotwin_dataset.
         dfs.append(run_mission(mid, inject_fault=True, rng=rng)); mid += 1
     full = pd.concat(dfs, ignore_index=True)
     full.to_csv(out_path, index=False)
-    print(f"Generated {len(full)} rows across {mid} missions -> {out_path}")
+    print(f"Generated {len(full)} rows across {mid} missions → {out_path}")
     print(full["fault_active"].value_counts())
     return full
 

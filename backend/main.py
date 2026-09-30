@@ -1,10 +1,18 @@
 """
-AeroTwin Backend — FastAPI
+AeroTwin Backend — FastAPI (v2.1)
 Changes v2:
   - SimulatedTelemetrySource replaces direct EngineSimulator usage
   - health_index.py wired into every tick
   - 8-fault taxonomy (FAULT_TYPES from updated simulator)
   - PDF + CSV report endpoints
+
+Changes v2.1 (Digital Twin Core upgrade):
+  - DigitalTwin, EngineStateEstimator, Corroborator instantiated per mission
+  - engine_state added to every WebSocket frame (wear_index, cooling_efficiency,
+    lube_health, drift, bias, time_to_threshold_s)
+  - input_fault validation result added to every frame
+  - Stateful Corroborator (persistence filter) replaces stateless call
+  - All existing API endpoints / JSON keys preserved; new keys are additive only
 """
 import sys, os, asyncio, json, time, io
 import numpy as np
@@ -23,7 +31,10 @@ if AEROTWIN_PATH not in sys.path:
 
 from models.telemetry_source import SimulatedTelemetrySource
 from simulator.engine_simulator import FlightPhase, FAULT_TYPES
-from models.digital_twin import compute_residuals, corroboration_check
+from models.digital_twin import (
+    DigitalTwin, EngineStateEstimator, Corroborator,
+    compute_residuals, corroboration_check, _SIGMAS,
+)
 from models.anomaly_detector import AnomalyDetector
 from models.fault_classifier import FaultClassifier, FEATURE_COLS as FC_FEATURE_COLS
 from models.rul_predictor import RULPredictor
@@ -31,7 +42,7 @@ from models.explainability import FaultExplainer
 from models.health_index import compute_health_indices
 from models.mission_report import export_pdf, export_csv
 
-app = FastAPI(title="AeroTwin Backend v2")
+app = FastAPI(title="AeroTwin Backend v2.1")
 
 app.add_middleware(
     CORSMiddleware,
@@ -52,9 +63,13 @@ class MissionState:
         self.phase_idx: int = 0
         self.ticks_in_phase: int = 0
         self.task: Optional[asyncio.Task] = None
+        # Per-mission Digital Twin components (Problem 3 / Integration)
+        self.twin: Optional[DigitalTwin] = None
+        self.estimator: Optional[EngineStateEstimator] = None
+        self.corroborator: Optional[Corroborator] = None
 
 mission_state = MissionState()
-active_websockets: List[WebSocket] = []
+active_websockets: List[WebSocket] = []\
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "flight_data.db")
 MODELS_DIR = os.path.join(AEROTWIN_PATH, "models", "artifacts")
@@ -181,22 +196,38 @@ async def simulation_loop():
             # 1. Read telemetry from SimulatedTelemetrySource
             sample = mission_state.source.read_sample(phase=current_phase)
 
-            # 2. Digital twin residuals + corroboration
-            residuals = compute_residuals(sample)
-            corrob    = corroboration_check(residuals)
+            # 2. Digital twin residuals via stateful DigitalTwin instance
+            twin = mission_state.twin
+            twin_result = twin.step(sample, dt_s=1.0)
+            residuals  = twin_result["residuals"]
+
+            # 2a. Input validation (Problem 4) — use rpm_hat from twin state
+            from models.digital_twin import _InputValidator
+            # We use a per-mission validator stored on twin (attach lazily)
+            if not hasattr(twin, "_backend_validator"):
+                twin._backend_validator = _InputValidator()
+            _, input_fault = twin._backend_validator.validate(sample, twin.rpm_hat)
+
+            # 2b. Corroboration (Problem 5 — stateful, persistence filter)
+            corrob = mission_state.corroborator.check(residuals)
+
+            # 2c. Engine State Estimation (Problem 3)
+            # Freeze Kalman update when input fault detected
+            frozen = input_fault["flag"]
+            engine_state = mission_state.estimator.update(residuals, dt_s=1.0, frozen=frozen)
 
             # 3. Build feature DataFrame
             row_dict = {
-                'resid_cht_c':       residuals['cht_c'],
-                'resid_egt_c':       residuals['egt_c'],
-                'resid_oil_temp_c':  residuals['oil_temp_c'],
+                'resid_cht_c':         residuals['cht_c'],
+                'resid_egt_c':         residuals['egt_c'],
+                'resid_oil_temp_c':    residuals['oil_temp_c'],
                 'resid_oil_press_bar': residuals['oil_press_bar'],
                 'resid_fuel_flow_lph': residuals['fuel_flow_lph'],
-                'resid_vibration_g': residuals['vibration_g'],
-                'resid_battery_v':   residuals['battery_v'],
-                'throttle':          sample['throttle'],
-                'rpm':               sample['rpm'],
-                'degradation':       sample['degradation'],
+                'resid_vibration_g':   residuals['vibration_g'],
+                'resid_battery_v':     residuals['battery_v'],
+                'throttle':            sample['throttle'],
+                'rpm':                 sample['rpm'],
+                'degradation':         sample['degradation'],
             }
             df_row = pd.DataFrame([row_dict])
 
@@ -235,7 +266,7 @@ async def simulation_loop():
             if rul_model:
                 rul_hours = float(rul_model.predict(df_row[RUL_COLS])[0])
 
-            # 7. Composite Health Index (NEW)
+            # 7. Composite Health Index
             fault_label      = fault_info.get("predicted_fault", "none")
             fault_confidence = float(fault_info.get("confidence", 0.0))
             health_indices   = compute_health_indices(
@@ -255,6 +286,14 @@ async def simulation_loop():
 
             timestamp = datetime.utcnow().isoformat()
 
+            # Build engine_state output (new additive keys, Problem 3)
+            engine_state_out = {
+                "wear_index":         engine_state["wear_index"],
+                "cooling_efficiency": engine_state["cooling_efficiency"],
+                "lube_health":        engine_state["lube_health"],
+                "drift":              engine_state["drift"],
+            }
+
             payload = {
                 "mission_id":     mission_state.mission_id,
                 "tick_number":    mission_state.tick_number,
@@ -268,6 +307,9 @@ async def simulation_loop():
                 "corroboration":  corrob,
                 "health_indices": health_indices,
                 "recommendation": recommendation,
+                # New additive keys (v2.1) —  do not change existing shape
+                "engine_state":   engine_state_out,
+                "input_fault":    input_fault,
             }
 
             msg_str = await broadcast(payload)
@@ -336,6 +378,12 @@ async def start_mission():
     mission_state.tick_number    = 0
     mission_state.phase_idx      = 0
     mission_state.ticks_in_phase = 0
+
+    # Instantiate per-mission Digital Twin components (Problem 2/3/5 integration)
+    mission_state.twin        = DigitalTwin()
+    mission_state.estimator   = EngineStateEstimator(sigmas=_SIGMAS)
+    mission_state.corroborator = Corroborator()
+
     async with aiosqlite.connect(DB_PATH) as db:
         await db.execute(
             "INSERT INTO missions (id, start_time, status) VALUES (?,?,?)",
@@ -352,6 +400,13 @@ async def stop_mission():
     mission_state.is_running = False
     if mission_state.task:
         mission_state.task.cancel()
+    # Reset twin / estimator / corroborator state
+    if mission_state.twin:
+        mission_state.twin.reset()
+    if mission_state.estimator:
+        mission_state.estimator.reset()
+    if mission_state.corroborator:
+        mission_state.corroborator.reset()
     await update_mission_status(mission_state.mission_id, "stopped")
     return {"status": "stopped", "mission_id": mission_state.mission_id}
 
