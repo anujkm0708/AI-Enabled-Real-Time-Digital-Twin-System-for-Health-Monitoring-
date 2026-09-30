@@ -47,7 +47,7 @@ REF = {
     "battery_v_base": 13.8,
 }
 
-# Full 8-class fault taxonomy matching DRDO PS 26054
+# Full 8-class fault taxonomy
 FAULT_TYPES = [
     "sensor_drift",
     "overheating_trend",

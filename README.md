@@ -1,5 +1,4 @@
 # AeroTwin — AI-Enabled Real-Time Digital Twin System
-### DRDO Problem Statement 26054 · Smart India Hackathon 2026
 
 Real-time health monitoring, fault detection, and remaining-life estimation for **aero piston engines (Rotax-class, turbocharged 4-stroke)** used in MALE UAVs. The system is fully software-simulated and demonstrates the pipeline from sensor to cockpit decision.
 
@@ -184,7 +183,7 @@ The ML models are genuinely trained (`.joblib` artifacts), SHAP runs a real `Tre
 | GET | `/api/missions/{id}/report.pdf` | One-page Mission Health Debrief PDF |
 | GET | `/api/missions/{id}/report.csv` | Tick-by-tick CSV export |
 
-**Fault types (8, matching DRDO PS 26054):** `sensor_drift`, `overheating_trend`, `oil_pressure_loss`, `misfire_condition`, `injector_abnormality`, `combustion_instability`, `cooling_degradation`, `lubrication_degradation`.
+**Fault types (8):** `sensor_drift`, `overheating_trend`, `oil_pressure_loss`, `misfire_condition`, `injector_abnormality`, `combustion_instability`, `cooling_degradation`, `lubrication_degradation`.
 
 **Recommendations:** `abort` (severity critical or RUL < 1 h), `divert` (severity warning or RUL < 5 h), `monitor` (severity advisory), `continue` (all nominal). Recommendations are advisory only.
 
@@ -273,4 +272,4 @@ aero_twinengine/
 
 ---
 
-*AeroTwin — DRDO PS 26054 / SIH 2026*
+*AeroTwin*

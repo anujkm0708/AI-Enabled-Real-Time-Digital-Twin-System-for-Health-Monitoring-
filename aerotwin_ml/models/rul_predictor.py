@@ -8,7 +8,7 @@ before the engine's internal `degradation` state reaches end-of-life (1.0),
 using current residuals + accumulated wear indicators as features.
 
 Note: this is a simple, fast-to-train regression approach appropriate for
-a hackathon MVP. An LSTM/sequence model trained on full degradation
+an MVP. An LSTM/sequence model trained on full degradation
 trajectories (e.g. validated against NASA C-MAPSS) is the natural upgrade
 path noted in the deployment roadmap.
 """

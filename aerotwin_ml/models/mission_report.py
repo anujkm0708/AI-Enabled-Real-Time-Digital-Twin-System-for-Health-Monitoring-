@@ -334,7 +334,7 @@ def export_pdf(mission_id: str, mission_ticks: List[Dict[str, Any]],
     story.append(HRFlowable(width="100%", thickness=0.5,
                              color=colors.HexColor("#cbd5e1")))
     story.append(Paragraph(
-        "<font size=8 color='#94a3b8'>AeroTwin Digital Twin System · DRDO PS 26054 · SIH 2026 · "
+        "<font size=8 color='#94a3b8'>AeroTwin Digital Twin System · "
         "AI-generated debrief — for advisory use only. "
         "Final maintenance decisions remain with qualified personnel.</font>",
         ParagraphStyle("footer", parent=body_style, alignment=TA_CENTER)))
